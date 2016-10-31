@@ -71,11 +71,20 @@ void WriteConnection(
     const   string& origin, 
     time_t  arriving, 
     const   string& destination,
-    const   string& rid
+    const   string& rid,
+    const   string& uid,
+    const   string& toc
     )
 {
     const char s = '|';
-    out << departing << s << origin << s << arriving << s << destination << s << rid << endl;
+    out 
+        << departing << s
+        << origin << s
+        << arriving << s 
+        << destination << s 
+        << rid << s 
+        << uid << s
+        << toc << endl;
 }
 
 string GetStopTiploc(const pt::ptree& stop)
@@ -98,6 +107,8 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
     
     const string tripRid = *GetAttribute(journey, "rid");
     const string tripDate = *GetAttribute(journey, "ssd");
+    const string tripUid = *GetAttribute(journey, "uid");
+    const string toc = *GetAttribute(journey, "toc");
     
     for(const pt::ptree::value_type& child: journey){
     
@@ -118,7 +129,18 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
                     time_t arrivingAt = AdjustTime(*pta, lastTime);
                     lastTime = arrivingAt;
                     const string& arrivalTiploc = GetStopTiploc(stop);
-                    WriteConnection(out, departureTime, lastDepartureTiploc, arrivingAt, arrivalTiploc, tripRid);
+                    
+                    WriteConnection(
+                        out,
+                        departureTime,
+                        lastDepartureTiploc,
+                        arrivingAt,
+                        arrivalTiploc,
+                        tripRid,
+                        tripUid,
+                        toc
+                        );
+                    
                     state = LookingForDeparture;
                 }
             }
