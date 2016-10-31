@@ -9,5 +9,6 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/optional.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/date_time.hpp>
 
 #endif

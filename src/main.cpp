@@ -8,17 +8,18 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include <boost/optional.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/date_time.hpp>
 
 using namespace std;
 using namespace boost;
 
 namespace pt = boost::property_tree;
 
-int ConverTimeStrToTimeInt(const string& timeStr)
+time_t CalculateTime(const string& tripDate, const string& time)
 {
-    vector<string> hhmm;
-    split(hhmm, timeStr, [](char c) { return c ==':'; });
-    return atoi(hhmm[0].c_str()) * 60 + atoi(hhmm[1].c_str());
+    using namespace posix_time;
+    ptime t = time_from_string(tripDate + " " + time);
+    return to_time_t(t);
 }
 
 optional<string> GetAttribute(const pt::ptree& node, const string& attribute)
@@ -26,38 +27,40 @@ optional<string> GetAttribute(const pt::ptree& node, const string& attribute)
     return node.get_optional<string>("<xmlattr>." + attribute);
 }
 
-optional<int> GetPlannedArrivalTime(const pt::ptree& stop)
+optional<time_t> GetPlannedArrivalTime(const pt::ptree& stop, const string& tripDate)
 {
     optional<string> pta = GetAttribute(stop, "pta");
     if (pta == boost::none)
     {
         return boost::none;
     }
-    return ConverTimeStrToTimeInt(*pta);
+    return CalculateTime(tripDate, *pta);
 }
 
-optional<int> GetPlannedDepartureTime(const pt::ptree& stop)
+optional<time_t> GetPlannedDepartureTime(const pt::ptree& stop, const string& tripDate)
 {
     optional<string> ptd = GetAttribute(stop, "ptd");
     if (ptd == boost::none) {
         return boost::none;
     }
-    return ConverTimeStrToTimeInt(*ptd);
+    return CalculateTime(tripDate, *ptd);
 }
 
-int AdjustTime(int time, const int lastTime)
+time_t AdjustTime(time_t time, const time_t lastTime)
 {
-    if (time + 600 < lastTime) {
-        time += 1440;
+    const time_t tenHours = 10 * 60 * 60;
+    const time_t twentyFourHours = 24 * 60 * 60;
+    if (time + tenHours < lastTime) {
+        time += twentyFourHours;
     }
     return time;
 }
 
 void WriteConnection(
     ostream& out,
-    int     departing,
+    time_t  departing,
     const   string& origin, 
-    int     arriving, 
+    time_t  arriving, 
     const   string& destination,
     const   string& rid
     )
@@ -71,7 +74,6 @@ string GetStopTiploc(const pt::ptree& stop)
     return *GetAttribute(stop, "ftl");
 }
 
-// TODO date on trips
 // TODO stops that only have board
 // TODO stops that only have alight
 // TODO split/join trips
@@ -82,10 +84,11 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
     
     StatesType state = LookingForDeparture;
     string  lastDepartureTiploc;
-    int     departureTime;
-    int     lastTime = 0;
+    time_t  departureTime;
+    time_t  lastTime = 0;
     
-    const string& tripRid = journey.get<string>("<xmlattr>.rid");
+    const string tripRid = *GetAttribute(journey, "rid");
+    const string dateStr = *GetAttribute(journey, "ssd");
     
     for(const pt::ptree::value_type& child: journey){
     
@@ -95,9 +98,9 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
         if (key == "OR" || key == "IP" || key == "DT") {
         
             if (state == LookingForArrival) {
-                optional<int> pta = GetPlannedArrivalTime(stop);
+                optional<time_t> pta = GetPlannedArrivalTime(stop, dateStr);
                 if (pta != boost::none) {
-                    int arrivingAt = AdjustTime(*pta, lastTime);
+                    time_t arrivingAt = AdjustTime(*pta, lastTime);
                     lastTime = arrivingAt;
                     const string& arrivalTiploc = GetStopTiploc(stop);
                     WriteConnection(out, departureTime, lastDepartureTiploc, arrivingAt, arrivalTiploc, tripRid);
@@ -106,7 +109,7 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
             }
 
             if (state == LookingForDeparture) {
-                optional<int> ptd = GetPlannedDepartureTime(stop);
+                optional<time_t> ptd = GetPlannedDepartureTime(stop, dateStr);
                 if (ptd != boost::none) {
                     lastDepartureTiploc = GetStopTiploc(stop);
                     departureTime = AdjustTime(*ptd, lastTime);
