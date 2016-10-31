@@ -46,6 +46,15 @@ optional<time_t> GetPlannedDepartureTime(const pt::ptree& stop, const string& tr
     return CalculateTime(tripDate, *ptd);
 }
 
+optional<time_t> GetPassingPointTime(const pt::ptree& stop, const string& tripDate)
+{
+    optional<string> passingTime = GetAttribute(stop, "wtp");
+    if (passingTime == boost::none) {
+        return boost::none;
+    }
+    return CalculateTime(tripDate, *passingTime);
+}
+
 time_t AdjustTime(time_t time, const time_t lastTime)
 {
     const time_t tenHours = 10 * 60 * 60;
@@ -88,17 +97,23 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
     time_t  lastTime = 0;
     
     const string tripRid = *GetAttribute(journey, "rid");
-    const string dateStr = *GetAttribute(journey, "ssd");
+    const string tripDate = *GetAttribute(journey, "ssd");
     
     for(const pt::ptree::value_type& child: journey){
     
         const string& key = child.first;
         const pt::ptree& stop = child.second;
         
-        if (key == "OR" || key == "IP" || key == "DT") {
+        if (key == "PP") {
+            optional<time_t> passingTime = GetPassingPointTime(stop, tripDate);
+            if (passingTime != boost::none) {
+                lastTime = AdjustTime(*passingTime, lastTime);
+            }
+        }
+        else if (key == "OR" || key == "IP" || key == "DT") {
         
             if (state == LookingForArrival) {
-                optional<time_t> pta = GetPlannedArrivalTime(stop, dateStr);
+                optional<time_t> pta = GetPlannedArrivalTime(stop, tripDate);
                 if (pta != boost::none) {
                     time_t arrivingAt = AdjustTime(*pta, lastTime);
                     lastTime = arrivingAt;
@@ -109,7 +124,7 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
             }
 
             if (state == LookingForDeparture) {
-                optional<time_t> ptd = GetPlannedDepartureTime(stop, dateStr);
+                optional<time_t> ptd = GetPlannedDepartureTime(stop, tripDate);
                 if (ptd != boost::none) {
                     lastDepartureTiploc = GetStopTiploc(stop);
                     departureTime = AdjustTime(*ptd, lastTime);
