@@ -18,5 +18,8 @@ $(SDIR)/headers.hpp.gch: $(SDIR)/headers.hpp Makefile
 clean:
 	rm connections $(SDIR)/*.o $(SDIR)/*.gch
 
+test: connections
+	time ./connections $(TT)
+
 run: connections
-	./connections $(TT)
+	time ./connections ~/projects/data/20160530020814_v7.xml > c.bsv
