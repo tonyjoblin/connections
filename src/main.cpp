@@ -96,19 +96,85 @@ string GetStopTiploc(const pt::ptree& stop)
 // TODO stops that only have alight
 // TODO split/join trips
 
+enum StatesType { LookingForArrival, LookingForDeparture };
+
+struct ConnectionState
+{
+public:
+    
+    StatesType  state;
+    
+    string lastDepartureTiploc;
+    time_t departureTime;
+    time_t       lastTime = 0;
+    
+    string tripRid;
+    string tripDate;
+    string tripUid;
+    string toc;
+}
+
+ConnectionState HandlePassingPoint(const pt::ptree& passingPoint, const ConnectionState& state)
+{
+    optional<time_t> passingTime = GetPassingPointTime(passingPoint, tripDate);
+    if (passingTime == boost::none) {
+        return state;
+    }
+    
+    ConnectionState newState(state);
+    newState.lastTime = AdjustTime(*passingTime, state.lastTime);
+    return newState;
+}
+
+ConnectionState HandleDepartureTime(const pt::ptree& passingPoint, const ConnectionState& state)
+{
+    optional<time_t> ptd = GetPlannedDepartureTime(stop, tripDate);
+    if (ptd == boost::none) {
+        return state;
+    }
+    ConnectionState newState(state);
+    newState.lastDepartureTiploc = GetStopTiploc(stop);
+    departureTime = AdjustTime(*ptd, lastTime);
+    lastTime = departureTime;
+    state = LookingForArrival;
+
+}
+
+ConnectionState HandleArrivalTime(const pt::ptree& stop, const ConnectionState& state)
+{
+    optional<time_t> pta = GetPlannedArrivalTime(stop, state.tripDate);
+    if (pta == boost::none) {
+        return state;
+    }
+    time_t arrivingAt = AdjustTime(*pta, state.lastTime);
+    const string& arrivalTiploc = GetStopTiploc(stop);
+    
+    WriteConnection(
+        out,
+        state.departureTime,
+        state.lastDepartureTiploc,
+        arrivingAt,
+        arrivalTiploc,
+        state.tripRid,
+        state.tripUid,
+        state.toc
+        );
+    
+    ConnectionState newState(state);
+    state.state = LookingForDeparture;
+    state.lastTime = arrivingAt;
+    return newState;
+}
+
 void ProcessJourney(const pt::ptree& journey, ostream& out)
 {
-    enum StatesType { LookingForArrival, LookingForDeparture };
-    
-    StatesType state = LookingForDeparture;
-    string  lastDepartureTiploc;
-    time_t  departureTime;
-    time_t  lastTime = 0;
-    
-    const string tripRid = *GetAttribute(journey, "rid");
-    const string tripDate = *GetAttribute(journey, "ssd");
-    const string tripUid = *GetAttribute(journey, "uid");
-    const string toc = *GetAttribute(journey, "toc");
+    ConnectionState state;
+    state.state = LookingForDeparture;
+    state.lastTime = 0;
+    state.tripRid = *GetAttribute(journey, "rid");
+    state.tripDate = *GetAttribute(journey, "ssd");
+    state.tripUid = *GetAttribute(journey, "uid");
+    state.toc = *GetAttribute(journey, "toc");
     
     for(const pt::ptree::value_type& child: journey){
     
@@ -116,43 +182,15 @@ void ProcessJourney(const pt::ptree& journey, ostream& out)
         const pt::ptree& stop = child.second;
         
         if (key == "PP") {
-            optional<time_t> passingTime = GetPassingPointTime(stop, tripDate);
-            if (passingTime != boost::none) {
-                lastTime = AdjustTime(*passingTime, lastTime);
-            }
+            state = HandlePassingPoint(stop, state);
         }
         else if (key == "OR" || key == "IP" || key == "DT") {
         
             if (state == LookingForArrival) {
-                optional<time_t> pta = GetPlannedArrivalTime(stop, tripDate);
-                if (pta != boost::none) {
-                    time_t arrivingAt = AdjustTime(*pta, lastTime);
-                    lastTime = arrivingAt;
-                    const string& arrivalTiploc = GetStopTiploc(stop);
-                    
-                    WriteConnection(
-                        out,
-                        departureTime,
-                        lastDepartureTiploc,
-                        arrivingAt,
-                        arrivalTiploc,
-                        tripRid,
-                        tripUid,
-                        toc
-                        );
-                    
-                    state = LookingForDeparture;
-                }
+                state = HandleArrivalTime(stop, state);
             }
 
             if (state == LookingForDeparture) {
-                optional<time_t> ptd = GetPlannedDepartureTime(stop, tripDate);
-                if (ptd != boost::none) {
-                    lastDepartureTiploc = GetStopTiploc(stop);
-                    departureTime = AdjustTime(*ptd, lastTime);
-                    lastTime = departureTime;
-                    state = LookingForArrival;
-                }
             }
         }
     }
